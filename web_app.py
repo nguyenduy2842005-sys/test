@@ -24,6 +24,13 @@ from opt_core import (
 
 st.set_page_config(page_title="Đớp Tool", page_icon="🦈", layout="wide")
 
+import opt_core as _oc
+if "user_nodal" not in getattr(_oc.StructInput, "__dataclass_fields__", {}):
+    st.error("File `opt_core.py` trên máy bạn là phiên bản CŨ (thiếu trường `user_nodal`). "
+             "Hãy giải nén lại toàn bộ `dop_tool.zip` và ghi đè TẤT CẢ file (opt_core.py, web_app.py, "
+             "legacy_plots.py, viz_results.py, fem_core.py), xoá thư mục `__pycache__`, rồi chạy lại Streamlit.")
+    st.stop()
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 BLUE, ORANGE, GREEN, RED, GREY = "#1f77b4", "#e67300", "#2ca02c", "#d62728", "#7f7f7f"
 
