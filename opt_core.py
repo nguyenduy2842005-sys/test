@@ -1062,6 +1062,9 @@ class StructInput:
     A_max: float = 1.0
     disp_limits: list[tuple[int, str, float]] = field(default_factory=list)   # (node, 'ux'|'uy', |δ|max m)
     segments: int = 1
+    # Tải NGƯỜI DÙNG nhập (chỉ để vẽ sơ đồ tải; solver dùng `loads` và `member_q` đã quy đổi)
+    user_nodal: list[tuple[int, float, float, float]] = field(default_factory=list)   # (node, Fx, Fy, Mz)
+    user_udl: list[tuple[int, float]] = field(default_factory=list)                   # (thanh, w kN/m hướng xuống)
 
 
 @dataclass

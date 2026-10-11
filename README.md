@@ -37,3 +37,10 @@ Kích thước vẽ ∝ A^γ (γ của họ tiết diện; γ = 0 như chữ I c
 
 ## Lưu ý về `fem_core.py`
 `solve_plane_frame` báo **phản lực sai dấu** (lực xuống 10 kN ở đầu console cho Ry = −10, và phần "Kiểm tra ΣFy" ra −20 thay vì 0). Core được giữ nguyên; lõi tối ưu dùng phản lực riêng đã đúng dấu.
+
+## Biểu đồ tải trọng · lực cắt · mô men · chuyển vị (ghép từ web cũ)
+- `legacy_plots.py`: trích nguyên văn các hàm vẽ từ `web_app_v2.py` (sơ đồ tải, SFD, BMD, đường đàn hồi, biểu đồ khung).
+- `viz_results.py`: cầu nối giữa kết quả tối ưu và các hàm vẽ cũ; nét "trước tối ưu" là nét đứt **trắng** trên nền tối (đen trên nền sáng).
+- Tab Dầm: lưới 2×2 (tải / V / M / võng) + phản lực. Tab Khung/dàn: các tab Sơ đồ tải, Nội lực (M/V/N), Chuyển vị.
+- Quy ước: tải hướng xuống > 0; V dương khi phần bên trái đẩy lên; M > 0 căng thớ dưới (vẽ xuống dưới); võng xuống > 0.
+- Lưu ý: `fem_core.solve_plane_frame` trả dấu phản lực ngược (giữ nguyên core); `opt_core.reactions()` đã hiệu chỉnh. Cột chưa có biểu đồ V/M.

@@ -16,6 +16,7 @@ import streamlit.components.v1 as components
 from plotly.subplots import make_subplots
 
 from fem_core import build_docx_bytes
+import viz_results as vz
 from opt_core import (
     BEAM_BCS, COLUMN_BCS, STEEL_E, STEEL_RHO, STEEL_SIGMA,
     BeamProblem, StructInput, make_family, optimize_beam, optimize_column, optimize_frame,
@@ -148,7 +149,7 @@ def fig_before_after_member(x, A_ref, A_opt, fam, ref_label, title, xt="x (m)", 
         fig.add_scatter(x=bx, y=by, fill="toself", mode="lines", line=dict(width=0), fillcolor=UP_FILL,
                         name="Phần phải tăng thêm", hoverinfo="skip")
     for sgn, show in ((1, True), (-1, False)):
-        fig.add_scatter(x=x, y=sgn * hr, mode="lines", line=dict(color="#222", width=2, dash="dash"),
+        fig.add_scatter(x=x, y=sgn * hr, mode="lines", line=dict(color=vz.before_color(), width=2, dash="dash"),
                         name=ref_label, showlegend=show, hoverinfo="skip")
     fig.add_hline(y=0, line=dict(color=GREY, width=1, dash="dot"))
     fig.update_yaxes(range=[-1.18, 1.18], showticklabels=False, zeroline=False)
@@ -191,7 +192,7 @@ def plot_structure_before_after(res, title="Tiết diện từng thanh — trư�
                     line=dict(color=BLUE, width=1.6), name="Sau tối ưu — nhỏ hơn mốc", hoverinfo="skip")
     fig.add_scatter(x=orange[0], y=orange[1], fill="toself", mode="lines", fillcolor=UP_FILL,
                     line=dict(color=ORANGE, width=1.6), name="Sau tối ưu — lớn hơn mốc", hoverinfo="skip")
-    fig.add_scatter(x=dash[0], y=dash[1], mode="lines", line=dict(color="#222", width=1.6, dash="dash"),
+    fig.add_scatter(x=dash[0], y=dash[1], mode="lines", line=dict(color=vz.before_color(), width=1.6, dash="dash"),
                     name="Trước tối ưu (tiết diện đều)", hoverinfo="skip")
     # điểm hover tại giữa mỗi thanh
     mx, my, tx = [], [], []
@@ -406,16 +407,20 @@ def tab_beam():
         st.caption(f"Dầm đều thoả cùng ràng buộc cần A = {r.A_uniform * 1e4:.2f} cm² (V = {r.vol_uniform:.4f} m³); "
                    f"dầm tối ưu V = {r.vol_opt:.4f} m³ → **tiết kiệm {sav:.1f}%**. Xanh lá = vật liệu bỏ được, "
                    f"cam = chỗ dày hơn mốc. Chiều cao vẽ ∝ A^{_shape_exp(r.prob.fam):g}.")
+        st.subheader("Sơ đồ tải trọng · lực cắt · mômen · chuyển vị")
+        fld = vz.beam_fields(r)
+        rc = vz.beam_reactions(r, fld)
+        if rc:
+            metrics([(k, v) for k, v in rc])
         c1, c2 = st.columns(2)
-        fm = go.Figure()
-        fm.add_scatter(x=r.moment_x, y=r.moment_opt, fill="tozeroy", line=dict(color=RED), name="M")
-        fm.update_yaxes(autorange="reversed")
-        c1.plotly_chart(fig_layout(fm, "Biểu đồ mômen M (kNm)", 320, "x (m)", "M"), width="stretch")
-        fd = go.Figure()
-        fd.add_scatter(x=r.xs, y=r.deflection_opt * 1e3, name="Tối ưu", line=dict(color=BLUE))
-        fd.add_scatter(x=r.xs, y=r.deflection_uni * 1e3, name="Dầm đều", line=dict(color=GREY, dash="dot"))
-        fd.update_yaxes(autorange="reversed")
-        c2.plotly_chart(fig_layout(fd, "Độ võng (mm)", 320, "x (m)", "w"), width="stretch")
+        c1.plotly_chart(vz.plot_beam_loads(r.prob), width="stretch")
+        c2.plotly_chart(vz.plot_beam_sfd(fld), width="stretch")
+        c3, c4 = st.columns(2)
+        c3.plotly_chart(vz.plot_beam_bmd(fld), width="stretch")
+        c4.plotly_chart(vz.plot_beam_elastic(r.prob, fld), width="stretch")
+        st.caption("Nét đứt trắng = dầm đều (trước tối ưu, cùng ràng buộc); nét liền = dầm vút thon sau tối ưu. "
+                   "Quy ước: tải xuống > 0; M > 0 căng thớ dưới (vẽ về phía dưới); V > 0 khi phần bên trái đẩy lên; "
+                   "độ võng hướng xuống > 0. Với dầm tĩnh định, V và M của hai phương án trùng nhau (chỉ độ võng khác).")
         report_block(r.report, "dam_toi_uu", "Thuyết minh — Tối ưu dầm vút thon")
 
 
@@ -529,7 +534,9 @@ def build_struct_input(geo, mode_label, fam, E, sig, rho, amin, amax, buck, keff
                        loads=[(k, a[0], a[1], a[2]) for k, a in loads.items()], member_q=member_q,
                        mode="frame" if is_frame else "truss", fam=fam, E=E, sigma_a=sig, rho=rho,
                        FS_buckling=fs, k_eff=keff, check_buckling=buck, A_min=amin, A_max=amax,
-                       disp_limits=lims, segments=seg)
+                       disp_limits=lims, segments=seg,
+                       user_nodal=[(int(k), float(fx), float(fy), 0.0) for k, fx, fy in clean_rows(nodal_df, 3, int_cols=(0,))],
+                       user_udl=[(int(m), float(wv)) for m, wv in clean_rows(udl_df, 2, int_cols=(0,)) if wv != 0])
 
 
 def plot_structure(inp: StructInput, area_member=None, util_member=None, title="Hình học kết cấu"):
@@ -572,43 +579,6 @@ def _add_nodes_supports_loads(fig, inp: StructInput, span, xs, ys):
             fig.add_annotation(x=px, y=py, ax=px - fx / mag * L0, ay=py - fy / mag * L0, xref="x", yref="y",
                                axref="x", ayref="y", showarrow=True, arrowhead=3, arrowcolor=GREEN, arrowwidth=2,
                                text=f"{mag:.0f} kN", font=dict(color=GREEN, size=10))
-
-
-def plot_forces(res, kind):
-    inp, model, opt = res.inp, res.model, res.opt
-    xs = [p[0] for p in inp.nodes]; ys = [p[1] for p in inp.nodes]
-    span = max(max(xs) - min(xs), max(ys) - min(ys), 1.0)
-    fig = go.Figure()
-    for k, (i, j) in enumerate(inp.members):
-        fig.add_scatter(x=[inp.nodes[i][0], inp.nodes[j][0]], y=[inp.nodes[i][1], inp.nodes[j][1]], mode="lines",
-                        line=dict(color="#999", width=2), showlegend=False, hoverinfo="skip")
-    if inp.mode == "truss":
-        for k, (i, j) in enumerate(inp.members):
-            Nk = float(opt.N[k])
-            col = RED if Nk > 0 else BLUE
-            fig.add_scatter(x=[inp.nodes[i][0], inp.nodes[j][0]], y=[inp.nodes[i][1], inp.nodes[j][1]], mode="lines",
-                            line=dict(color=col, width=2 + 8 * abs(Nk) / max(np.max(np.abs(opt.N)), 1e-12)),
-                            showlegend=False, hoverinfo="text", text=f"Thanh {k}: N = {Nk:.2f} kN")
-            fig.add_annotation(x=(inp.nodes[i][0] + inp.nodes[j][0]) / 2, y=(inp.nodes[i][1] + inp.nodes[j][1]) / 2,
-                               text=f"{Nk:.1f}", showarrow=False, bgcolor="rgba(255,255,255,.8)", font=dict(size=10, color=col))
-        title = "Lực dọc N (kN) — đỏ: kéo, xanh: nén"
-    else:
-        diag = model.element_diagram(opt.U, opt.A, npts=15)
-        key = {"N": "N", "V": "V", "M": "M"}[kind]
-        mx = max(float(np.max(np.abs(d[key]))) for d in diag) or 1.0
-        sc = 0.10 * span / mx
-        for e, d in enumerate(diag):
-            nx, ny = -model.s[e], model.c[e]
-            ox = d["x"] + nx * d[key] * sc; oy = d["y"] + ny * d[key] * sc
-            fig.add_scatter(x=np.concatenate([d["x"], ox[::-1]]), y=np.concatenate([d["y"], oy[::-1]]), fill="toself",
-                            fillcolor="rgba(214,39,40,.25)", line=dict(color=RED, width=1), showlegend=False,
-                            hoverinfo="skip")
-            kk = int(np.argmax(np.abs(d[key])))
-            if abs(d[key][kk]) > 0.05 * mx:
-                fig.add_annotation(x=ox[kk], y=oy[kk], text=f"{d[key][kk]:.1f}", showarrow=False, font=dict(size=9))
-        title = {"N": "Lực dọc N (kN)", "V": "Lực cắt V (kN)", "M": "Mômen M (kNm) — vẽ về phía trục y cục bộ"}[kind]
-    fig.update_yaxes(scaleanchor="x", scaleratio=1)
-    return fig_layout(fig, title, 480)
 
 
 def tab_struct():
@@ -688,7 +658,7 @@ def tab_struct():
          "metric-good" if o.feasible else "metric-bad"),
         ("Sai số KKT (E–L)", f"{o.EL_cv:.1%}" if o.EL_cv is not None else "—"),
     ])
-    t0, t1, t2, t3, t4 = st.tabs(["Trước / Sau", "Tiết diện tối ưu", "Nội lực", "Bảng thanh", "Hội tụ"])
+    t0, tL, t2, tD, t1, t3, t4 = st.tabs(["Trước / Sau", "Sơ đồ tải", "Nội lực", "Chuyển vị", "Tiết diện tối ưu", "Bảng thanh", "Hội tụ"])
     with t0:
         st.plotly_chart(plot_structure_before_after(res), width="stretch")
         st.caption(f"Nét đứt: tiết diện đều A = {o.A_uniform * 1e4:.2f} cm² thoả cùng ràng buộc (W = {res.weight_uniform:,.2f} kN). "
@@ -697,10 +667,22 @@ def tab_struct():
     with t1:
         st.plotly_chart(plot_structure(res.inp, area_member=res.A_member, title="Diện tích A (cm²) — độ dày/màu ∝ A"),
                         width="stretch")
+    with tL:
+        st.plotly_chart(vz.plot_struct_loads(res), width="stretch")
+        st.caption("Tải nút theo bảng nhập; với khung, tải phân bố hiển thị là thành phần vuông góc trục thanh (q⊥) mà solver dùng.")
     with t2:
-        kinds = ["N"] if res.inp.mode == "truss" else ["M", "N", "V"]
-        k = st.radio("Biểu đồ", kinds, horizontal=True, key="s_diag") if len(kinds) > 1 else kinds[0]
-        st.plotly_chart(plot_forces(res, k), width="stretch")
+        kinds = [("axial", "N — lực dọc")] if res.inp.mode == "truss" else \
+            [("moment", "M — mômen"), ("shear", "V — lực cắt"), ("axial", "N — lực dọc")]
+        names = [n for _, n in kinds]
+        pick = st.radio("Biểu đồ nội lực", names, horizontal=True, key="s_diag") if len(kinds) > 1 else names[0]
+        st.plotly_chart(vz.plot_struct_diagram(res, dict((n, k) for k, n in kinds)[pick]), width="stretch")
+        st.caption("Biểu đồ vẽ lệch vuông góc trục thanh, có trị số tại đầu thanh và cực trị; dùng chung tỷ lệ cho toàn kết cấu.")
+    with tD:
+        st.plotly_chart(vz.plot_struct_deformed(res), width="stretch")
+        dd = res.model.node_disp(o.U)
+        rows_d = [{"Nút": i, "ux (mm)": dd[i, 0] * 1e3, "uy (mm)": dd[i, 1] * 1e3,
+                   **({"θz (mrad)": dd[i, 2] * 1e3} if dd.shape[1] == 3 else {})} for i in range(len(res.inp.nodes))]
+        st.dataframe(pd.DataFrame(rows_d).round(4), hide_index=True, width="stretch")
     with t3:
         rows = []
         for m_, (i, j) in enumerate(res.inp.members):

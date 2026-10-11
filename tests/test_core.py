@@ -150,6 +150,20 @@ def test_column_oc_history_monotone_clamped():
     assert r.P_numeric / r.P_closed > 0.98
 
 
+def test_viz_beam_ss_analytic():
+    import viz_results as vz
+    fam = make_family("rect", ratio=0.5)
+    L = 8.0
+    prob = BeamProblem(L=L, bc="ss", udls=[(10.0, 0.0, L)], point_loads=[(100.0, L / 2)], fam=fam,
+                       delta_max=0.02, x_ctrl=L / 2, sigma_a=1e12, A_min=2e-4, n_elem=80)
+    r = optimize_beam(prob)
+    f = vz.beam_fields(r)
+    Rtot = 100 + 10 * L
+    assert abs(f["M_opt"].max() - (Rtot / 2 * L / 2 - 10 * (L / 2) ** 2 / 2)) < 0.02 * Rtot * L / 4   # M_max = PL/4 + qL²/8
+    assert abs(abs(f["V_opt"]).max() - Rtot / 2) < 0.03 * Rtot
+    assert np.allclose(f["M_opt"], f["M_uni"], atol=1e-6 * Rtot * L)           # tĩnh định ⇒ M không phụ thuộc A
+
+
 if __name__ == "__main__":
     import time
     for name, fn in list(globals().items()):
