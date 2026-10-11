@@ -264,22 +264,28 @@ def column_oc_numeric(L: float, V: float, fam: SectionFamily, E: float, bc: str,
     xe = np.linspace(0.0, L, N + 1)
     Le = np.diff(xe)
     A = np.full(N, V / L)
-    hist = []
-    best = (-1.0, A.copy())
+    hist: list[float] = []          # P tốt nhất đã đạt sau mỗi vòng (đơn điệu tăng → đồ thị hội tụ rõ ràng)
+    best_P, best_A, best_U = -1.0, A.copy(), None
     for _ in range(iters):
         P, U = column_buckling_fem(Le, E * fam.I(A), bc)
-        hist.append(P)
-        if P > best[0]:
-            best = (P, A.copy())
-        th = U[1::2]
-        kap = np.diff(th) / Le
-        r = A ** (n - 1.0) * kap ** 2 + 1e-300
-        rbar = float(np.sum(r * A * Le) / np.sum(A * Le))
-        A = A * (r / rbar) ** (eta / (n + 1.0))
+        if P > best_P:
+            gain = P - best_P
+            best_P, best_A, best_U = P, A.copy(), U
+            hist.append(best_P)
+            if best_P > 0 and gain < 1e-10 * best_P:
+                break
+        else:                        # bước quá lớn: quay về thiết kế tốt nhất và giảm nửa bước (backtracking)
+            eta *= 0.5
+            hist.append(best_P)
+            if eta < 1e-3:
+                break
+        kap = np.diff(best_U[1::2]) / Le
+        r = best_A ** (n - 1.0) * kap ** 2 + 1e-300
+        rbar = float(np.sum(r * best_A * Le) / np.sum(best_A * Le))
+        A = best_A * (r / rbar) ** (eta / (n + 1.0))
         A = np.maximum(A, floor * V / L)
         A *= V / float(np.sum(A * Le))
-        if len(hist) > 30 and abs(hist[-1] - hist[-10]) < 1e-9 * hist[-1]:
-            break
+    best = (best_P, best_A)
     P_best, A_best = best
     xm = 0.5 * (xe[:-1] + xe[1:])
     return xm, A_best, P_best, hist

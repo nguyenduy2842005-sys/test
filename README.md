@@ -11,6 +11,11 @@ Chạy: `pip install -r requirements.txt` rồi `streamlit run web_app.py`. Ki�
 | `canvas/index.html` | Canvas vẽ kết cấu (nút/thanh/gối). |
 | `tests/test_core.py` | Kiểm chứng số học. |
 
+## Trực quan hoá trước / sau tối ưu
+Cột, dầm và từng thanh khung/dàn đều có hình **trước (nét đứt)** so với **sau (nét liền, tô màu)**: xanh lá = vật liệu bỏ được, cam = chỗ dày hơn mốc.
+Mốc cột: cùng P_cr hoặc cùng thể tích (chọn được). Mốc dầm và khung/dàn: tiết diện đều nhỏ nhất thoả cùng ràng buộc.
+Kích thước vẽ ∝ A^γ (γ của họ tiết diện; γ = 0 như chữ I cao cố định thì vẽ ∝ A). Với cùng thể tích, nghiệm tối ưu của cột luôn phình ra ngoài mốc ở giữa nhịp.
+
 ## Phương pháp
 1. **Cấu kiện biến thiên A(x), I = α·Aⁿ.**
    - *Cột:* Euler–Lagrange cho `A ∝ |w|^(2/(n+1))`, nghiệm đóng qua hàm Beta không đầy đủ; cột khớp–khớp n=2 cho tỷ số tải tới hạn 4/3 (Keller).

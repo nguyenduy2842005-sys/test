@@ -141,6 +141,15 @@ def test_reactions_equilibrium_sign():
     assert abs(Mext + Mr) < 1e-7
 
 
+def test_column_oc_history_monotone_clamped():
+    """Hồi quy: OC từng dao động mạnh (P/P* xuống 0.2) ở cột hai đầu ngàm; nay phải đơn điệu và ≥ 98%."""
+    fam = make_family("tube", ratio=0.05)
+    r = optimize_column(5.0, fam, E, "clamped", P_req=500.0, floor_frac=0.01, run_numeric=True)
+    h = np.array(r.history)
+    assert np.all(np.diff(h) >= -1e-9 * h[-1])
+    assert r.P_numeric / r.P_closed > 0.98
+
+
 if __name__ == "__main__":
     import time
     for name, fn in list(globals().items()):

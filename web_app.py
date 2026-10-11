@@ -110,6 +110,108 @@ def fig_layout(fig, title="", h=380, xt="", yt=""):
 
 
 # ══════════════════════════════════════════════════════
+#  TRỰC QUAN HOÁ TRƯỚC / SAU TỐI ƯU
+#  Nét đứt = phương án trước tối ưu (mốc), nét liền + tô màu = sau tối ưu.
+#  Kích thước vẽ ∝ A^g, g = γ của họ tiết diện (γ = 0, vd chữ I cao cố định → vẽ ∝ A).
+# ══════════════════════════════════════════════════════
+SAVE_FILL, UP_FILL, BODY_FILL = "rgba(44,160,44,.22)", "rgba(230,115,0,.45)", "rgba(31,119,180,.40)"
+
+
+def _shape_exp(fam) -> float:
+    return float(fam.gamma) if fam.gamma > 1e-9 else 1.0
+
+
+def _band_xy(x, lo, hi):
+    """Hai dải đối xứng (+ và −) giữa lo và hi, ngăn bằng None để vẽ trong 1 trace."""
+    xs = np.concatenate([x, x[::-1]])
+    up = np.concatenate([hi, lo[::-1]])
+    dn = np.concatenate([-hi, -lo[::-1]])
+    return (list(xs) + [None] + list(xs)), (list(up) + [None] + list(dn))
+
+
+def fig_before_after_member(x, A_ref, A_opt, fam, ref_label, title, xt="x (m)", h=330):
+    x = np.asarray(x, float)
+    A_opt = np.asarray(A_opt, float)
+    A_ref = np.full_like(x, float(A_ref)) if np.isscalar(A_ref) else np.asarray(A_ref, float)
+    g = _shape_exp(fam)
+    s = max(float(np.max(A_opt)), float(np.max(A_ref)), 1e-30)
+    ho, hr = (A_opt / s) ** g, (A_ref / s) ** g
+    fig = go.Figure()
+    bx, by = _band_xy(x, np.minimum(ho, hr), hr)
+    fig.add_scatter(x=bx, y=by, fill="toself", mode="lines", line=dict(width=0), fillcolor=SAVE_FILL,
+                    name="Vật liệu tiết kiệm được", hoverinfo="skip")
+    # thân tối ưu: một polygon kín từ −h_o đến +h_o
+    fig.add_scatter(x=list(x) + list(x[::-1]), y=list(ho) + list(-ho[::-1]), fill="toself", mode="lines",
+                    line=dict(color=BLUE, width=2.5), fillcolor=BODY_FILL, name="Sau tối ưu (nét liền)", hoverinfo="skip")
+    if np.any(ho > hr + 1e-9):
+        bx, by = _band_xy(x, hr, np.maximum(ho, hr))
+        fig.add_scatter(x=bx, y=by, fill="toself", mode="lines", line=dict(width=0), fillcolor=UP_FILL,
+                        name="Phần phải tăng thêm", hoverinfo="skip")
+    for sgn, show in ((1, True), (-1, False)):
+        fig.add_scatter(x=x, y=sgn * hr, mode="lines", line=dict(color="#222", width=2, dash="dash"),
+                        name=ref_label, showlegend=show, hoverinfo="skip")
+    fig.add_hline(y=0, line=dict(color=GREY, width=1, dash="dot"))
+    fig.update_yaxes(range=[-1.18, 1.18], showticklabels=False, zeroline=False)
+    fig.update_layout(legend=dict(orientation="h", y=1.2, x=0))
+    return fig_layout(fig, title, h, xt, "")
+
+
+def _poly_quad(p0, p1, n, h0, h1):
+    return [p0 + n * h0, p1 + n * h1, p1 - n * h1, p0 - n * h0, p0 + n * h0]
+
+
+def plot_structure_before_after(res, title="Tiết diện từng thanh — trước (nét đứt) so với sau tối ưu (nét liền)"):
+    inp, model, opt = res.inp, res.model, res.opt
+    fam = inp.fam
+    g = _shape_exp(fam)
+    A_ref = float(opt.A_uniform)
+    Amax = max(float(np.max(opt.A)), A_ref)
+    xs = [p[0] for p in inp.nodes]; ys = [p[1] for p in inp.nodes]
+    span = max(max(xs) - min(xs), max(ys) - min(ys), 1.0)
+    wfull = 0.05 * span                                     # bề rộng vẽ của tiết diện lớn nhất
+    half = lambda A: 0.5 * wfull * (float(A) / Amax) ** g
+
+    def add_poly(store, pts):
+        store[0] += [float(q[0]) for q in pts] + [None]
+        store[1] += [float(q[1]) for q in pts] + [None]
+
+    blue, orange, dash = [[], []], [[], []], [[], []]
+    for k, (i, j) in enumerate(inp.members):               # mốc: 1 hình chữ nhật nét đứt cho mỗi thanh
+        p0, p1 = np.array(inp.nodes[i], float), np.array(inp.nodes[j], float)
+        d = p1 - p0; Lm = float(np.hypot(*d)); n = np.array([-d[1], d[0]]) / Lm
+        add_poly(dash, _poly_quad(p0, p1, n, half(A_ref), half(A_ref)))
+    for e in range(model.n_el):                            # sau tối ưu: từng phần tử (thấy được vút thon trong thanh)
+        p0, p1 = model.xy[model.conn[e, 0]], model.xy[model.conn[e, 1]]
+        d = p1 - p0; Lm = float(np.hypot(*d)); n = np.array([-d[1], d[0]]) / Lm
+        h = half(opt.A[e])
+        add_poly(orange if opt.A[e] > A_ref * 1.0005 else blue, _poly_quad(p0, p1, n, h, h))
+
+    fig = go.Figure()
+    fig.add_scatter(x=blue[0], y=blue[1], fill="toself", mode="lines", fillcolor=BODY_FILL,
+                    line=dict(color=BLUE, width=1.6), name="Sau tối ưu — nhỏ hơn mốc", hoverinfo="skip")
+    fig.add_scatter(x=orange[0], y=orange[1], fill="toself", mode="lines", fillcolor=UP_FILL,
+                    line=dict(color=ORANGE, width=1.6), name="Sau tối ưu — lớn hơn mốc", hoverinfo="skip")
+    fig.add_scatter(x=dash[0], y=dash[1], mode="lines", line=dict(color="#222", width=1.6, dash="dash"),
+                    name="Trước tối ưu (tiết diện đều)", hoverinfo="skip")
+    # điểm hover tại giữa mỗi thanh
+    mx, my, tx = [], [], []
+    for k, (i, j) in enumerate(inp.members):
+        sel = res.member_of_el == k
+        mx.append((inp.nodes[i][0] + inp.nodes[j][0]) / 2); my.append((inp.nodes[i][1] + inp.nodes[j][1]) / 2)
+        a_o = float(res.A_member[k])
+        tx.append(f"Thanh {k}: trước {A_ref * 1e4:.2f} cm² → sau {a_o * 1e4:.2f} cm² ({(a_o / A_ref - 1) * 100:+.0f}%)")
+    fig.add_scatter(x=mx, y=my, mode="markers", marker=dict(size=14, color="rgba(0,0,0,0)"), text=tx,
+                    hoverinfo="text", showlegend=False)
+    _add_nodes_supports_loads(fig, inp, span, xs, ys)
+    fig.update_yaxes(scaleanchor="x", scaleratio=1)
+    pad = 0.12 * span
+    fig.update_xaxes(range=[min(xs) - pad, max(xs) + pad]); fig.update_yaxes(range=[min(ys) - pad, max(ys) + 2 * pad])
+    fig = fig_layout(fig, title, 580)
+    fig.update_layout(margin=dict(l=50, r=20, t=105, b=40), legend=dict(orientation="h", y=1.0, yanchor="bottom", x=0))
+    return fig
+
+
+# ══════════════════════════════════════════════════════
 #  TAB 0 — LÝ THUYẾT
 # ══════════════════════════════════════════════════════
 def tab_theory():
@@ -206,18 +308,29 @@ def tab_column():
                             line=dict(color=ORANGE, dash="dash"))
         fig.add_scatter(x=[0, 1], y=[r.A_uniform * 1e4] * 2, name="Cột đều", line=dict(color=GREY, dash="dot"))
         st.plotly_chart(fig_layout(fig, "Diện tích tối ưu A(x)", 360, "x/L", "A (cm²)"), width="stretch")
-        c1, c2 = st.columns(2)
-        sil = go.Figure()
-        rad = np.sqrt(np.maximum(r.A_opt, 0.0)) / np.sqrt(np.max(r.A_opt))
-        sil.add_scatter(x=np.concatenate([r.x, r.x[::-1]]), y=np.concatenate([rad, -rad[::-1]]), fill="toself",
-                        fillcolor="rgba(31,119,180,.35)", line=dict(color=BLUE), name="Cột tối ưu")
-        sil.update_yaxes(scaleanchor=None, showticklabels=False)
-        c1.plotly_chart(fig_layout(sil, "Hình dạng (bề rộng ∝ √A)", 320, "x (m)", ""), width="stretch")
+        ref_mode = st.radio("Mốc so sánh (nét đứt)", ["Cột đều cùng P_cr (vật liệu cần để chịu cùng tải)",
+                                                     "Cột đều cùng thể tích V"], horizontal=True, key="c_ref")
+        if ref_mode.startswith("Cột đều cùng P_cr"):
+            A_ref = r.A_uniform * (r.P_fem_opt / r.P_uniform) ** (1.0 / r.fam.n)   # P_cr ∝ A^n
+            ref_lab = "Trước tối ưu: cột đều, cùng P_cr"
+            note = (f"Cột đều chịu cùng P_cr = {r.P_fem_opt:,.0f} kN cần V = {A_ref * r.L * 1e6:,.0f} cm²·m; "
+                    f"cột tối ưu chỉ cần {r.V * 1e6:,.0f} cm²·m → **tiết kiệm {(1 - r.V / (A_ref * r.L)) * 100:.1f}% vật liệu**.")
+        else:
+            A_ref = r.A_uniform
+            ref_lab = "Trước tối ưu: cột đều, cùng thể tích"
+            note = (f"Cùng thể tích, cột tối ưu chịu P_cr = {r.P_fem_opt:,.0f} kN so với {r.P_uniform:,.0f} kN của cột đều "
+                    f"(**×{r.ratio_fem:.3f}**).")
+        st.plotly_chart(fig_before_after_member(r.x, A_ref, r.A_opt, r.fam, ref_lab,
+                                                "Hình dạng cột — trước (nét đứt) so với sau tối ưu (nét liền)", "x (m)", 340),
+                        width="stretch")
+        st.caption(note + " Vùng **xanh lá** = vật liệu bỏ được; vùng **cam** = chỗ phải dày hơn mốc (vật liệu được dồn về "
+                          "nơi mômen lớn, nên cột tối ưu luôn phình ra ngoài mốc ở giữa nhịp). "
+                          f"Bề rộng vẽ ∝ A^{_shape_exp(r.fam):g}.")
         if r.history:
             cv = go.Figure()
             cv.add_scatter(y=np.array(r.history) / r.P_closed, name="P_cr(OC)/P_closed", line=dict(color=ORANGE))
             cv.add_hline(y=1.0, line_dash="dot")
-            c2.plotly_chart(fig_layout(cv, "Hội tụ OC so với nghiệm đóng", 320, "vòng lặp", "P/P*"), width="stretch")
+            st.plotly_chart(fig_layout(cv, "Hội tụ OC so với nghiệm đóng", 300, "vòng lặp", "P/P*"), width="stretch")
         report_block(r.report, "cot_toi_uu", "Thuyết minh — Tối ưu cột")
 
 
@@ -285,6 +398,14 @@ def tab_beam():
             fig.add_scatter(x=r.closed["x"], y=r.closed["A"] * 1e4, name="Nghiệm đóng E–L", line=dict(color=ORANGE, dash="dash"))
         fig.add_scatter(x=[0, r.prob.L], y=[r.A_uniform * 1e4] * 2, name="Dầm đều", line=dict(color=GREY, dash="dot"))
         st.plotly_chart(fig_layout(fig, "Diện tích tối ưu A(x)", 360, "x (m)", "A (cm²)"), width="stretch")
+        xs_step = np.repeat(r.xs, 2)[1:-1]
+        st.plotly_chart(fig_before_after_member(xs_step, r.A_uniform, np.repeat(r.A_opt, 2), r.prob.fam,
+                                                "Trước tối ưu: dầm đều (cùng ràng buộc)",
+                                                "Hình dạng dầm — trước (nét đứt) so với sau tối ưu (nét liền)", "x (m)", 340),
+                        width="stretch")
+        st.caption(f"Dầm đều thoả cùng ràng buộc cần A = {r.A_uniform * 1e4:.2f} cm² (V = {r.vol_uniform:.4f} m³); "
+                   f"dầm tối ưu V = {r.vol_opt:.4f} m³ → **tiết kiệm {sav:.1f}%**. Xanh lá = vật liệu bỏ được, "
+                   f"cam = chỗ dày hơn mốc. Chiều cao vẽ ∝ A^{_shape_exp(r.prob.fam):g}.")
         c1, c2 = st.columns(2)
         fm = go.Figure()
         fm.add_scatter(x=r.moment_x, y=r.moment_opt, fill="tozeroy", line=dict(color=RED), name="M")
@@ -430,6 +551,14 @@ def plot_structure(inp: StructInput, area_member=None, util_member=None, title="
         mx, my = (inp.nodes[i][0] + inp.nodes[j][0]) / 2, (inp.nodes[i][1] + inp.nodes[j][1]) / 2
         fig.add_annotation(x=mx, y=my, text=f"{k}" if vals is None else f"{vals[k] * 1e4:.1f}", showarrow=False,
                            font=dict(size=10, color="#333"), bgcolor="rgba(255,255,255,.75)")
+    _add_nodes_supports_loads(fig, inp, span, xs, ys)
+    fig.update_yaxes(scaleanchor="x", scaleratio=1)
+    pad = 0.12 * span
+    fig.update_xaxes(range=[min(xs) - pad, max(xs) + pad]); fig.update_yaxes(range=[min(ys) - pad, max(ys) + 2 * pad])
+    return fig_layout(fig, title, 520)
+
+
+def _add_nodes_supports_loads(fig, inp: StructInput, span, xs, ys):
     fig.add_scatter(x=xs, y=ys, mode="markers+text", text=[str(i) for i in range(len(xs))], textposition="top center",
                     marker=dict(size=8, color="white", line=dict(color=BLUE, width=2)), showlegend=False, name="Nút")
     sx = [inp.nodes[s[0]][0] for s in inp.supports]; sy = [inp.nodes[s[0]][1] for s in inp.supports]
@@ -443,10 +572,6 @@ def plot_structure(inp: StructInput, area_member=None, util_member=None, title="
             fig.add_annotation(x=px, y=py, ax=px - fx / mag * L0, ay=py - fy / mag * L0, xref="x", yref="y",
                                axref="x", ayref="y", showarrow=True, arrowhead=3, arrowcolor=GREEN, arrowwidth=2,
                                text=f"{mag:.0f} kN", font=dict(color=GREEN, size=10))
-    fig.update_yaxes(scaleanchor="x", scaleratio=1)
-    pad = 0.12 * span
-    fig.update_xaxes(range=[min(xs) - pad, max(xs) + pad]); fig.update_yaxes(range=[min(ys) - pad, max(ys) + 2 * pad])
-    return fig_layout(fig, title, 520)
 
 
 def plot_forces(res, kind):
@@ -563,7 +688,12 @@ def tab_struct():
          "metric-good" if o.feasible else "metric-bad"),
         ("Sai số KKT (E–L)", f"{o.EL_cv:.1%}" if o.EL_cv is not None else "—"),
     ])
-    t1, t2, t3, t4 = st.tabs(["Tiết diện tối ưu", "Nội lực", "Bảng thanh", "Hội tụ"])
+    t0, t1, t2, t3, t4 = st.tabs(["Trước / Sau", "Tiết diện tối ưu", "Nội lực", "Bảng thanh", "Hội tụ"])
+    with t0:
+        st.plotly_chart(plot_structure_before_after(res), width="stretch")
+        st.caption(f"Nét đứt: tiết diện đều A = {o.A_uniform * 1e4:.2f} cm² thoả cùng ràng buộc (W = {res.weight_uniform:,.2f} kN). "
+                   f"Nét liền: sau tối ưu (W = {res.weight:,.2f} kN, **tiết kiệm {res.saving * 100:.1f}%**). Xanh = nhỏ hơn mốc, "
+                   f"cam = lớn hơn mốc. Bề rộng vẽ ∝ A^{_shape_exp(res.inp.fam):g}. Rê chuột lên giữa thanh để xem số liệu.")
     with t1:
         st.plotly_chart(plot_structure(res.inp, area_member=res.A_member, title="Diện tích A (cm²) — độ dày/màu ∝ A"),
                         width="stretch")
